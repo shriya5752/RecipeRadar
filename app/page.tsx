@@ -812,7 +812,7 @@ export default function Home() {
                 <section className="panel">
                   <h2>Recipe vector index</h2>
                   <p>
-                    Approved SQLite recipes are indexed; synchronization
+                    Approved recipes are indexed; synchronization
                     failures remain queued for retry.
                   </p>
                   <button
