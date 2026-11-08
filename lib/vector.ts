@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { all, one, run, transaction } from "./db.ts";
+import { all, one, run, transaction, RECIPE_COLUMNS } from "./db.ts";
 
 export const COLLECTION = "reciperadar_recipes";
 export const VECTOR_SIZE = 128;
-// SQLite JSON vectors are the zero-setup local database. Set QDRANT_URL to use a persistent Qdrant service.
-const backend = process.env.QDRANT_URL ? "qdrant" : "sqlite-json-vector";
+// Default: embeddings live in PostgreSQL (vector_documents) and are searched by fn_search_vectors().
+// Set QDRANT_URL to use an external Qdrant service instead.
+const backend = process.env.QDRANT_URL ? "qdrant" : "postgres-vector";
 const url = (process.env.QDRANT_URL || "").replace(/\/$/, "");
 const synonyms: Record<string, string> = {
   creamy: "smooth",
@@ -78,13 +79,13 @@ export function embed(text: string): number[] {
   const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0)) || 1;
   return vector.map((v) => Number((v / norm).toFixed(6)));
 }
-export function recipeDocument(id: number) {
-  const r = one(
-    "SELECT r.*,c.name cuisine,d.name diet FROM recipes r JOIN cuisines c USING(cuisine_id) JOIN dietary_types d USING(diet_id) WHERE recipe_id=?",
+export async function recipeDocument(id: number) {
+  const r = await one(
+    `SELECT ${RECIPE_COLUMNS},c.name cuisine,d.name diet FROM recipes r JOIN cuisines c USING(cuisine_id) JOIN dietary_types d USING(diet_id) WHERE recipe_id=?`,
     id,
   );
   if (!r) return null;
-  const ingredients = all(
+  const ingredients = await all(
     "SELECT i.name,ri.quantity,ri.unit,i.flavor FROM recipe_ingredients ri JOIN ingredients i USING(ingredient_id) WHERE recipe_id=? ORDER BY i.name",
     id,
   );
@@ -129,7 +130,7 @@ async function qdrant(path: string, init?: RequestInit) {
   return response.status === 204 ? null : response.json();
 }
 export async function ensureCollection() {
-  if (backend === "sqlite-json-vector") return true;
+  if (backend === "postgres-vector") return true;
   try {
     await qdrant(`/collections/${COLLECTION}`);
     return true;
@@ -150,30 +151,30 @@ export async function ensureCollection() {
   }
   return true;
 }
+const UPSERT_VECTOR =
+  "INSERT INTO vector_documents(recipe_id,embedding,payload) VALUES(?,?::float8[],?::jsonb) ON CONFLICT(recipe_id) DO UPDATE SET embedding=excluded.embedding,payload=excluded.payload,updated_at=now()";
 export async function syncOutbox(limit = 100) {
-  if (backend === "sqlite-json-vector") {
-    const rows = all(
-      "SELECT * FROM vector_sync_outbox ORDER BY outbox_id LIMIT ?",
-      limit,
-    );
+  const rows = await all(
+    "SELECT * FROM vector_sync_outbox ORDER BY outbox_id LIMIT ?",
+    limit,
+  );
+  if (backend === "postgres-vector") {
     if (rows.length)
-      transaction(() => {
+      await transaction(async () => {
         for (const row of rows) {
           if (row.operation === "delete")
-            run(
+            await run(
               "DELETE FROM vector_documents WHERE recipe_id=?",
               row.recipe_id,
             );
-          else if (row.payload) {
-            const point = JSON.parse(row.payload);
-            run(
-              "INSERT INTO vector_documents(recipe_id,embedding,payload) VALUES(?,?,?) ON CONFLICT(recipe_id) DO UPDATE SET embedding=excluded.embedding,payload=excluded.payload,updated_at=CURRENT_TIMESTAMP",
+          else if (row.payload)
+            await run(
+              UPSERT_VECTOR,
               row.recipe_id,
-              JSON.stringify(point.vector),
-              JSON.stringify(point.payload),
+              row.payload.vector,
+              JSON.stringify(row.payload.payload),
             );
-          }
-          run(
+          await run(
             "DELETE FROM vector_sync_outbox WHERE outbox_id=?",
             row.outbox_id,
           );
@@ -182,10 +183,6 @@ export async function syncOutbox(limit = 100) {
     return rows.length;
   }
   await ensureCollection();
-  const rows = all(
-    "SELECT * FROM vector_sync_outbox ORDER BY outbox_id LIMIT ?",
-    limit,
-  );
   let synced = 0;
   for (const row of rows) {
     try {
@@ -197,12 +194,12 @@ export async function syncOutbox(limit = 100) {
       else if (row.payload)
         await qdrant(`/collections/${COLLECTION}/points?wait=true`, {
           method: "PUT",
-          body: JSON.stringify({ points: [JSON.parse(row.payload)] }),
+          body: JSON.stringify({ points: [row.payload] }),
         });
-      run("DELETE FROM vector_sync_outbox WHERE outbox_id=?", row.outbox_id);
+      await run("DELETE FROM vector_sync_outbox WHERE outbox_id=?", row.outbox_id);
       synced++;
     } catch (error) {
-      run(
+      await run(
         "UPDATE vector_sync_outbox SET attempts=attempts+1,last_error=? WHERE outbox_id=?",
         String(error).slice(0, 500),
         row.outbox_id,
@@ -213,20 +210,23 @@ export async function syncOutbox(limit = 100) {
   return synced;
 }
 export async function bootstrapIndex() {
-  const points = all("SELECT recipe_id FROM recipes WHERE is_approved=1")
-    .map((r) => recipeDocument(r.recipe_id))
-    .filter(Boolean) as NonNullable<ReturnType<typeof recipeDocument>>[];
-  if (backend === "sqlite-json-vector") {
-    transaction(() => {
+  const points: NonNullable<Awaited<ReturnType<typeof recipeDocument>>>[] = [];
+  // Sequential on purpose: a request transaction uses a single database connection.
+  for (const r of await all("SELECT recipe_id FROM recipes WHERE is_approved")) {
+    const point = await recipeDocument(r.recipe_id);
+    if (point) points.push(point);
+  }
+  if (backend === "postgres-vector") {
+    await transaction(async () => {
       for (const point of points)
-        run(
-          "INSERT INTO vector_documents(recipe_id,embedding,payload) VALUES(?,?,?) ON CONFLICT(recipe_id) DO UPDATE SET embedding=excluded.embedding,payload=excluded.payload,updated_at=CURRENT_TIMESTAMP",
+        await run(
+          UPSERT_VECTOR,
           point.id,
-          JSON.stringify(point.vector),
+          point.vector,
           JSON.stringify(point.payload),
         );
-      run(
-        "DELETE FROM vector_documents WHERE recipe_id NOT IN (SELECT recipe_id FROM recipes WHERE is_approved=1)",
+      await run(
+        "DELETE FROM vector_documents WHERE recipe_id NOT IN (SELECT recipe_id FROM recipes WHERE is_approved)",
       );
     });
     await syncOutbox();
@@ -244,31 +244,16 @@ export async function bootstrapIndex() {
   await syncOutbox();
   return points.length;
 }
-function cosine(a: number[], b: number[]) {
-  let dot = 0,
-    aa = 0,
-    bb = 0;
-  for (let i = 0; i < VECTOR_SIZE; i++) {
-    dot += a[i] * b[i];
-    aa += a[i] * a[i];
-    bb += b[i] * b[i];
-  }
-  return aa && bb ? dot / Math.sqrt(aa * bb) : 0;
-}
 export async function searchVector(query: string, limit = 8) {
   await ensureCollection();
   await syncOutbox();
   const vector = embed(query);
-  if (backend === "sqlite-json-vector")
+  if (backend === "postgres-vector")
+    // Cosine similarity ranking runs inside PostgreSQL (fn_search_vectors).
     return {
-      result: all("SELECT recipe_id id,embedding,payload FROM vector_documents")
-        .map((row) => ({
-          id: row.id,
-          score: cosine(vector, JSON.parse(row.embedding)),
-          payload: JSON.parse(row.payload),
-        }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit),
+      result: (
+        await all("SELECT recipe_id id,score,payload FROM fn_search_vectors(?::float8[],?)", vector, limit)
+      ).map((row) => ({ id: row.id, score: row.score, payload: row.payload })),
     };
   return qdrant(`/collections/${COLLECTION}/points/search`, {
     method: "POST",
@@ -282,8 +267,8 @@ export async function searchVector(query: string, limit = 8) {
 }
 export async function getVector(id: number) {
   await ensureCollection();
-  if (backend === "sqlite-json-vector") {
-    const row = one(
+  if (backend === "postgres-vector") {
+    const row = await one(
       "SELECT recipe_id,embedding,payload,updated_at FROM vector_documents WHERE recipe_id=?",
       id,
     );
@@ -291,8 +276,8 @@ export async function getVector(id: number) {
     return {
       result: {
         id: row.recipe_id,
-        vector: JSON.parse(row.embedding),
-        payload: JSON.parse(row.payload),
+        vector: row.embedding,
+        payload: row.payload,
         updated_at: row.updated_at,
       },
     };
@@ -303,7 +288,7 @@ export async function getVector(id: number) {
 }
 export async function deleteVector(id: number) {
   await ensureCollection();
-  if (backend === "sqlite-json-vector")
+  if (backend === "postgres-vector")
     return run("DELETE FROM vector_documents WHERE recipe_id=?", id);
   return qdrant(`/collections/${COLLECTION}/points/${id}?wait=true`, {
     method: "DELETE",
@@ -311,12 +296,12 @@ export async function deleteVector(id: number) {
 }
 export async function collectionInfo() {
   await ensureCollection();
-  if (backend === "sqlite-json-vector")
+  if (backend === "postgres-vector")
     return {
       backend,
       result: {
         status: "green",
-        points_count: Number(one("SELECT COUNT(*) n FROM vector_documents").n),
+        points_count: Number((await one("SELECT COUNT(*) n FROM vector_documents")).n),
       },
     };
   return qdrant(`/collections/${COLLECTION}`).then((r: any) => ({
