@@ -1,28 +1,31 @@
+# docker compose up --build   ->  http://localhost:3000
+# Secrets come from the environment / .env file (see .env.example); no passwords live in this file.
 services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: reciperadar
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d reciperadar"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
   reciperadar:
     build: .
     ports:
       - "3000:3000"
-    volumes:
-      - recipe-data:/app/data
     environment:
-      QDRANT_URL: http://qdrant:6333
+      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/reciperadar
+      DATABASE_URL: postgres://rr_app:${RR_APP_PASSWORD:?set RR_APP_PASSWORD in .env}@postgres:5432/reciperadar
+      RR_APP_PASSWORD: ${RR_APP_PASSWORD}
     depends_on:
-      qdrant:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
-  qdrant:
-    image: qdrant/qdrant:v1.13.6
-    ports:
-      - "127.0.0.1:6333:6333"
-    volumes:
-      - qdrant-data:/qdrant/storage
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
-      interval: 3s
-      timeout: 2s
-      retries: 20
-    restart: unless-stopped
-volumes:
-  recipe-data:
-  qdrant-data:

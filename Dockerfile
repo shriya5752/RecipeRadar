@@ -15,8 +15,9 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/db ./db
 COPY --from=build /app/scripts ./scripts
-COPY --from=build /app/lib/sample-steps.json ./lib/sample-steps.json
-RUN mkdir -p data && chown -R node:node /app
+COPY --from=build /app/lib ./lib
+RUN chown -R node:node /app
 USER node
 EXPOSE 3000
-CMD ["npm", "start"]
+# Apply migrations (and seed demo data on first run), then start the server.
+CMD ["sh", "-c", "npm run db:setup && npm start"]

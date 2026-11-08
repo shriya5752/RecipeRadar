@@ -1,7 +1,8 @@
 node_modules
 .next
-data
 .env*
+!.env.example
 *.tsbuildinfo
 preview.png
 .next-verify
+backups
