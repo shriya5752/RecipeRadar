@@ -67,7 +67,7 @@ The container runs `npm run db:setup` before starting the server.
 - Views: `recipe_allergen_details`, `meal_plan_daily_nutrition`, `meal_plan_shopping_list`, `my_profile`.
 - Versioned migrations in `db/migrations/`: `001_schema`, `002_routines`, `003_full_text_search` (an `ALTER TABLE` adding a generated `tsvector` + GIN index), `004_roles_and_security`.
 
-Diagrams: [`docs/figures/er-diagram.png`](docs/figures/er-diagram.png), editable [`docs/figures/reciperadar-erd.drawio`](docs/figures/reciperadar-erd.drawio), [`docs/figures/relational-schema.png`](docs/figures/relational-schema.png). Reconciliation with the supplied model: [`docs/database-audit.md`](docs/database-audit.md). The previous SQLite implementation is archived in `db/legacy-sqlite/`.
+Diagrams: [`docs/figures/er-diagram.png`](docs/figures/er-diagram.png), editable [`docs/figures/reciperadar-erd.drawio`](docs/figures/reciperadar-erd.drawio), [`docs/figures/relational-schema.png`](docs/figures/relational-schema.png).
 
 ## SQL work
 

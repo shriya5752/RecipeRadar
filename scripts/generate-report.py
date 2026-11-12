@@ -99,7 +99,7 @@ heading('Table of Contents')
 toc=[('1','Introduction and Problem Statement','3'),('2','User Requirements and Technology Stack','4'),('3','Entity Relationship Model','5–6'),('4','Relational Model','7–8'),('5','SQL DDL Statements','9'),('6','SQL DML Statements','10–11'),('7','NoSQL and Vector Database Commands','12'),('8','Results (incl. roles, RLS and testing)','13–15'),('9','Next.js Project Tree Structure','16'),('10','Application Code and Demo Screenshots','17–18'),('11','Evaluation Rubrics and Completion Status','19')]
 table(['Sl. No.','Topic','Page'],toc,[.72,5.1,.65],9)
 para('Artifact map',boldlead='Artifact map')
-bullets(['Editable ERD: docs/figures/reciperadar-erd.drawio','SQL source: db/migrations/*.sql (DDL, routines, roles) and db/queries.sql','Live database audit: docs/database-verification.json','Screenshots: docs/screenshots/','Detailed attribute reconciliation: docs/database-audit.md'])
+bullets(['Editable ERD: docs/figures/reciperadar-erd.drawio','SQL source: db/migrations/*.sql (DDL, routines, roles) and db/queries.sql','Live database audit: docs/database-verification.json','Screenshots: docs/screenshots/','Implemented column and key details: db/migrations/001_schema.sql'])
 para('Page numbers refer to this rendered report. Figures and tables are sourced from the checked-in project files or a live PostgreSQL database.',italic=True)
 page()
 
@@ -157,7 +157,7 @@ para('All source relations and their displayed attributes are retained. Join rel
 para('The implemented schema strengthens nullability, validates lengths and domains, checks recipe-step JSON, verifies calendar dates, and declares explicit delete behavior. Rating averages and allergen flags are trigger-maintained derived attributes. The last administrator cannot be demoted (trigger).')
 page();heading('Relational Schema Diagram')
 image(Path('figures/relational-schema.png'),6.9,'Figure 2. Complete light-background relational schema. PK and FK marks appear on each key component; all 18 tables are included.')
-para('The diagram is generated from PostgreSQL catalog metadata by scripts/generate-diagrams.py. The editable ER model is docs/figures/reciperadar-erd.drawio; the exact PDF-to-schema mapping and deliberate differences are documented in docs/database-audit.md.')
+para('The diagram is generated from PostgreSQL catalog metadata by scripts/generate-diagrams.py. The editable ER model is docs/figures/reciperadar-erd.drawio. The PostgreSQL migration files define the implemented columns and keys.')
 
 # 5
 page();heading('5 SQL DDL Statements')

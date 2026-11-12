@@ -9,8 +9,6 @@
 ./app/layout.tsx
 ./app/page.tsx
 ./compose.yaml
-./db/legacy-sqlite/001-original.sql
-./db/legacy-sqlite/schema.sqlite.sql
 ./db/migrations/001_schema.sql
 ./db/migrations/002_routines.sql
 ./db/migrations/003_full_text_search.sql
@@ -18,7 +16,6 @@
 ./db/model-contract.json
 ./db/queries.sql
 ./docs/RecipeRadar_DBMS_Project_Report.docx
-./docs/database-audit.md
 ./docs/database-verification.json
 ./docs/figures/er-diagram.png
 ./docs/figures/reciperadar-erd.drawio
